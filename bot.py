@@ -59,13 +59,45 @@ class Birthday(Field):
 
 class Address:
     def __init__(self, street: str, city: str, state: str, zip_code: str):
-        self.street = street  
-        self.city = city  
-        self.state = state  
-        self.zip_code = zip_code
-        
+        self.street = self.validate_street(street)  
+        self.city = self.validate_city(city)  
+        self.state = self.validate_state(state)  
+        self.zip_code = self.validate_zip_code(zip_code)
+
+    def validate_street(self, street):
+        if not street.strip():
+            raise ValueError("Street cannot be empty.") 
+        return street 
+
+    def validate_city(self, city):
+        if not re.match(r'^[A-Za-z\s]+$', city):
+            raise ValueError("City must contain only letters and spaces.")
+        if not city.strip():
+            raise ValueError("City cannot be empty.")
+        return city
+
+    def validate_state(self, state):
+        if not re.match(r'^[A-Z]{2}$', state):
+            raise ValueError("State must be a valid 2-letter state code.")
+        return state
+    
+    def validate_zip_code(self, zip_code):
+        if not re.match(r'^\d{5}(?:[-\s]\d{4})?$', zip_code):
+            raise ValueError("Zip code must be in the format '12345' or '12345-6789'.")
+        return zip_code
+
     def __str__(self):
-        return f"{self.street}, {self.city}, {self.state} {self.zip_code}"        
+        return f"{self.street}, {self.city}, {self.state} {self.zip_code}"   
+
+class Email(Field):
+    def __init__(self, value):
+        if not self.validate(value):
+            raise ValueError("Invalid email format.")
+        super().__init__(value)
+
+    def validate(self, value):
+        
+        return re.fullmatch(r'[^@]+@[^@]+\.[^@]+', value) is not None         
 
 class Record:
     def __init__(self, name):
@@ -73,9 +105,7 @@ class Record:
         self.phones = []
         self.birthday = None
         self.address = None 
-
-
-
+        self.emails = []
 
     def add_phone(self, phone):
         self.phones.append(Phone(phone))
@@ -99,13 +129,26 @@ class Record:
         self.birthday = Birthday(birthday)
 
     def add_address(self, street, city, state, zip_code):
-        self.address = Address(street, city, state, zip_code)    
+        try:
+            self.address = Address(street, city, state, zip_code)
+        except ValueError as e:
+            return str(e)
+    def add_email(self, email):
+        self.emails.append(Email(email))
+     
+
+    def remove_email(self, email):
+        email_obj = Email(email)   
+        self.emails = [e for e in self.emails if e.value != email_obj.value]          
 
     def __str__(self):
         phone_str = '; '.join(p.value for p in self.phones)
+        email_str = '; '.join(e.value for e in self.emails)
         birthday_str = f", birthday: {self.birthday}" if self.birthday else ""
         address_str = f", address: {self.address}" if self.address else ""
-        return f"Contact name: {self.name.value}, phones: {phone_str}{birthday_str}{address_str}"
+    
+        return (f"Contact name: {self.name.value}, phones: {phone_str}, "
+            f"emails: {email_str}{birthday_str}{address_str}")
 
 
 class AddressBook(UserDict):
@@ -139,7 +182,7 @@ def input_error(func):
 
 @input_error
 def add_contact(args, book: AddressBook):
-    name, phone, *_ = args
+    name, phone, *other_args = args
     record = book.find(name)
     message = "Contact updated."
     if record is None:
@@ -148,6 +191,8 @@ def add_contact(args, book: AddressBook):
         message = "Contact added."
     if phone:
         record.add_phone(phone)
+    if len(other_args) >= 4: 
+        record.add_address(other_args)    
     return message
 
 
@@ -206,7 +251,7 @@ def birthdays(args, book: AddressBook):
 
 @input_error  
 def add_contact(args, book: AddressBook):
-    name, phone, *address_args = args  
+    name, phone, *other_args = args  
     record = book.find(name)
     message = "Contact updated."
     if record is None:
@@ -215,17 +260,36 @@ def add_contact(args, book: AddressBook):
         message = "Contact added."
     if phone:
         record.add_phone(phone)
-    if address_args:
-        street, city, state, zip_code = address_args  
+    if len(other_args) >= 4:
+        street, city, state, zip_code = other_args[:4]  
         record.add_address(street, city, state, zip_code)
-    return message
+    
+    if len(other_args) > 4:
+        for email in other_args[:4]:
+            record.add_email(email)
+    return message 
+       
+@input_error
 def add_address(args, book: AddressBook):
     name, street, city, state, zip_code = args  
     record = book.find(name)
     if record:
-        record.add_address(street, city, state, zip_code)
+        result = record.add_address(street, city, state, zip_code)
+        if result:
+            return result
         return "Address added."
     return "Contact not found." 
+
+@input_error  
+def add_email(args, book: AddressBook):
+    name, email = args  
+    record = book.find(name)
+
+    if record is None:
+        return "Contact not found."
+
+    record.add_email(email)  
+    return f"Email '{email}' added to contact '{name}'."
 
 def parse_input(user_input):
     return user_input.strip().split()
@@ -268,7 +332,11 @@ def main():
             print(birthdays(args, book))
 
         elif command == "add-address":
-              print(add_address(args, book)) 
+              print(add_address(args, book))
+
+        elif command == "add-email":
+              print(add_email(args, book))      
+
 
         else:
             print("Invalid command.")
